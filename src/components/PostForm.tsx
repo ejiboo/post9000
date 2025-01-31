@@ -5,6 +5,8 @@ import { useForm, useWatch } from 'react-hook-form';
 import { useRouter } from 'next/navigation';
 import type { SocialPlatform } from '@/types/database';
 import PostPreview from './PostPreview';
+import { PostService } from '@/lib/services/post-service';
+import { useUser } from '@clerk/nextjs';
 
 interface PostFormData {
   content: string;
@@ -20,6 +22,7 @@ export default function PostForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const { user } = useUser();
 
   const content = useWatch({ control, name: 'content', defaultValue: '' });
   const hashtags = useWatch({ control, name: 'hashtags', defaultValue: '' });
@@ -29,21 +32,29 @@ export default function PostForm() {
   const platforms: SocialPlatform[] = ['facebook', 'instagram', 'twitter', 'linkedin', 'tiktok', 'pinterest'];
 
   const onSubmit = async (data: PostFormData) => {
+    if (!user) return;
+    
     setIsLoading(true);
     setError(null);
 
     try {
-      const response = await fetch('/api/posts', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
-      });
+      const postService = new PostService(user.id);
+      const content = {
+        text: data.content,
+        media: data.mediaUrls
+          ? data.mediaUrls.split(',').map(url => ({
+              url: url.trim(),
+              type: url.match(/\.(mp4|mov|avi)$/i) ? 'video' : 'image'
+            }))
+          : undefined,
+        hashtags: data.hashtags ? data.hashtags.split(' ').filter(tag => tag.startsWith('#')) : undefined,
+      };
 
-      if (!response.ok) {
-        throw new Error('Failed to create post');
-      }
+      await postService.createPost(
+        content,
+        data.platforms,
+        data.scheduledFor ? new Date(data.scheduledFor) : undefined
+      );
 
       reset();
       router.refresh();
